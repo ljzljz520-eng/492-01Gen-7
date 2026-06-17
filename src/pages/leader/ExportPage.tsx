@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import {
   FileSpreadsheet,
   Download,
@@ -12,7 +12,6 @@ import Button from '@/components/ui/Button';
 import Modal from '@/components/ui/Modal';
 import { useProductionStore } from '@/store/useProductionStore';
 import { useWorkerStore } from '@/store/useWorkerStore';
-import { useStyleStore } from '@/store/useStyleStore';
 import { formatMoney } from '@/utils/date';
 import { getMonthSalarySummaries } from '@/utils/salary';
 import { exportMonthlySalary } from '@/utils/export';
@@ -24,11 +23,19 @@ export default function ExportPage() {
   const [year, setYear] = useState(currentDate.getFullYear());
   const [month, setMonth] = useState(currentDate.getMonth() + 1);
 
-  const { records, subsidies, addSubsidy, deleteSubsidy } = useProductionStore();
-  const { workers, getWorkerById } = useWorkerStore();
+  const { records, subsidies, fetchRecords, fetchSubsidies, addSubsidy, deleteSubsidy } = useProductionStore();
+  const { workers, fetchWorkers, getWorkerById } = useWorkerStore();
+
+  useEffect(() => {
+    fetchRecords();
+    fetchSubsidies();
+    fetchWorkers();
+  }, [fetchRecords, fetchSubsidies, fetchWorkers]);
 
   const [showSubsidyModal, setShowSubsidyModal] = useState(false);
   const [selectedWorkerId, setSelectedWorkerId] = useState('');
+  const [isSavingSubsidy, setIsSavingSubsidy] = useState(false);
+  const [isDeletingSubsidy, setIsDeletingSubsidy] = useState<string | null>(null);
   const defaultDate = year + '-' + String(month).padStart(2, '0') + '-15';
   const [subsidyForm, setSubsidyForm] = useState({
     name: '',
@@ -95,22 +102,37 @@ export default function ExportPage() {
     setShowSubsidyModal(true);
   };
 
-  const handleSaveSubsidy = () => {
+  const handleSaveSubsidy = async () => {
     if (!selectedWorkerId || !subsidyForm.name || !subsidyForm.amount) {
       return;
     }
 
-    addSubsidy({
-      ...subsidyForm,
-      workerId: selectedWorkerId,
-    });
-
-    setShowSubsidyModal(false);
+    setIsSavingSubsidy(true);
+    try {
+      await addSubsidy({
+        ...subsidyForm,
+        workerId: selectedWorkerId,
+      });
+      setShowSubsidyModal(false);
+    } catch (err) {
+      console.error('保存补贴失败:', err);
+      alert('保存失败，请重试');
+    } finally {
+      setIsSavingSubsidy(false);
+    }
   };
 
-  const handleDeleteSubsidy = (id: string) => {
+  const handleDeleteSubsidy = async (id: string) => {
     if (confirm('确定要删除该补贴吗？')) {
-      deleteSubsidy(id);
+      setIsDeletingSubsidy(id);
+      try {
+        await deleteSubsidy(id);
+      } catch (err) {
+        console.error('删除补贴失败:', err);
+        alert('删除失败，请重试');
+      } finally {
+        setIsDeletingSubsidy(null);
+      }
     }
   };
 
@@ -323,9 +345,17 @@ export default function ExportPage() {
                       <td className="px-6 py-4 whitespace-nowrap text-center">
                         <button
                           onClick={() => handleDeleteSubsidy(subsidy.id)}
-                          className="p-1.5 text-slate-400 hover:text-rose-500 hover:bg-rose-50 rounded-md transition-colors"
+                          disabled={isDeletingSubsidy === subsidy.id}
+                          className="p-1.5 text-slate-400 hover:text-rose-500 hover:bg-rose-50 rounded-md transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                         >
-                          <Trash2 className="w-4 h-4" />
+                          {isDeletingSubsidy === subsidy.id ? (
+                            <svg className="animate-spin w-4 h-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                            </svg>
+                          ) : (
+                            <Trash2 className="w-4 h-4" />
+                          )}
                         </button>
                       </td>
                     </tr>
@@ -447,7 +477,7 @@ export default function ExportPage() {
           <Button variant="secondary" onClick={() => setShowSubsidyModal(false)}>
             取消
           </Button>
-          <Button onClick={handleSaveSubsidy}>保存</Button>
+          <Button onClick={handleSaveSubsidy} isLoading={isSavingSubsidy}>保存</Button>
         </div>
       </Modal>
     </div>

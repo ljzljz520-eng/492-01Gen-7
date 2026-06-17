@@ -1,68 +1,102 @@
 import { create } from 'zustand';
-import { persist } from 'zustand/middleware';
 import type { Worker, UserRole } from '@/types';
-import { generateId } from '@/utils/date';
+import { api } from '@/api/client';
 
 interface WorkerState {
   workers: Worker[];
+  loading: boolean;
+  error: string | null;
   setWorkers: (workers: Worker[]) => void;
-  addWorker: (worker: Omit<Worker, 'id' | 'createdAt'>) => void;
-  updateWorker: (id: string, worker: Partial<Worker>) => void;
-  deleteWorker: (id: string) => void;
+  fetchWorkers: () => Promise<Worker[]>;
+  addWorker: (worker: Omit<Worker, 'id' | 'createdAt'>) => Promise<Worker>;
+  updateWorker: (id: string, worker: Partial<Worker>) => Promise<Worker>;
+  deleteWorker: (id: string) => Promise<void>;
   getWorkerById: (id: string) => Worker | undefined;
   getWorkerByNo: (workerNo: string) => Worker | undefined;
   getWorkersByRole: (role: UserRole) => Worker[];
-  login: (workerNo: string, password: string) => Worker | null;
 }
 
 export const useWorkerStore = create<WorkerState>()(
-  persist(
-    (set, get) => ({
-      workers: [],
+  (set, get) => ({
+    workers: [],
+    loading: false,
+    error: null,
 
-      setWorkers: (workers) => set({ workers }),
+    setWorkers: (workers) => set({ workers }),
 
-      addWorker: (worker) =>
+    fetchWorkers: async () => {
+      set({ loading: true, error: null });
+      try {
+        const workers = await api.workers.getAll();
+        set({ workers });
+        return workers;
+      } catch (err) {
+        const errorMessage = err instanceof Error ? err.message : 'Failed to fetch workers';
+        set({ error: errorMessage });
+        throw err;
+      } finally {
+        set({ loading: false });
+      }
+    },
+
+    addWorker: async (worker) => {
+      set({ loading: true, error: null });
+      try {
+        const newWorker = await api.workers.create(worker);
         set((state) => ({
-          workers: [
-            ...state.workers,
-            {
-              ...worker,
-              id: generateId(),
-              createdAt: new Date().toISOString().split('T')[0],
-            },
-          ],
-        })),
+          workers: [...state.workers, newWorker],
+        }));
+        return newWorker;
+      } catch (err) {
+        const errorMessage = err instanceof Error ? err.message : 'Failed to add worker';
+        set({ error: errorMessage });
+        throw err;
+      } finally {
+        set({ loading: false });
+      }
+    },
 
-      updateWorker: (id, worker) =>
+    updateWorker: async (id, worker) => {
+      set({ loading: true, error: null });
+      try {
+        const updatedWorker = await api.workers.update(id, worker);
         set((state) => ({
           workers: state.workers.map((w) =>
-            w.id === id ? { ...w, ...worker } : w
+            w.id === id ? { ...w, ...updatedWorker } : w
           ),
-        })),
+        }));
+        return updatedWorker;
+      } catch (err) {
+        const errorMessage = err instanceof Error ? err.message : 'Failed to update worker';
+        set({ error: errorMessage });
+        throw err;
+      } finally {
+        set({ loading: false });
+      }
+    },
 
-      deleteWorker: (id) =>
+    deleteWorker: async (id) => {
+      set({ loading: true, error: null });
+      try {
+        await api.workers.remove(id);
         set((state) => ({
           workers: state.workers.filter((w) => w.id !== id),
-        })),
+        }));
+      } catch (err) {
+        const errorMessage = err instanceof Error ? err.message : 'Failed to delete worker';
+        set({ error: errorMessage });
+        throw err;
+      } finally {
+        set({ loading: false });
+      }
+    },
 
-      getWorkerById: (id) => get().workers.find((w) => w.id === id),
+    getWorkerById: (id) => get().workers.find((w) => w.id === id),
 
-      getWorkerByNo: (workerNo) =>
-        get().workers.find((w) => w.workerNo === workerNo),
+    getWorkerByNo: (workerNo) =>
+      get().workers.find((w) => w.workerNo === workerNo),
 
-      getWorkersByRole: (role) =>
-        get().workers.filter((w) => w.role === role),
-
-      login: (workerNo, password) => {
-        const worker = get().workers.find(
-          (w) => w.workerNo === workerNo && w.password === password
-        );
-        return worker || null;
-      },
-    }),
-    {
-      name: 'garment_workers',
-    }
-  )
+    getWorkersByRole: (role) =>
+      get().workers.filter((w) => w.role === role),
+  })
 );

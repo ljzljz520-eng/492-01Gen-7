@@ -1,9 +1,9 @@
-import { useMemo } from 'react';
+import { useMemo, useEffect } from 'react';
 import { Wallet, Package, TrendingUp, Clock } from 'lucide-react';
 import { useAuthStore } from '@/store/useAuthStore';
 import { useProductionStore } from '@/store/useProductionStore';
 import { useStyleStore } from '@/store/useStyleStore';
-import { getToday, formatMoney, formatDate } from '@/utils/date';
+import { getToday, formatMoney } from '@/utils/date';
 import {
   calculateTotalQuantity,
   calculateTotalSalary,
@@ -13,8 +13,18 @@ import { PRODUCTION_TYPE_CONFIG } from '@/constants';
 
 export default function WorkerHome() {
   const { currentUser } = useAuthStore();
-  const { records, subsidies } = useProductionStore();
-  const { styles, processes, getStyleById, getProcessById } = useStyleStore();
+  const { records, subsidies, loading: productionLoading, fetchRecords, fetchSubsidies } = useProductionStore();
+  const { loading: stylesLoading, fetchStyles, getStyleById, getProcessById } = useStyleStore();
+
+  const loading = productionLoading || stylesLoading;
+
+  useEffect(() => {
+    if (currentUser?.id) {
+      fetchStyles();
+      fetchRecords({ workerId: currentUser.id });
+      fetchSubsidies({ workerId: currentUser.id });
+    }
+  }, [fetchStyles, fetchRecords, fetchSubsidies, currentUser?.id]);
 
   const today = getToday();
 
@@ -72,6 +82,84 @@ export default function WorkerHome() {
     });
     return grouped;
   }, [todayRecords]);
+
+  if (loading) {
+    return (
+      <div className="pb-4 animate-fade-in">
+        <div className="bg-gradient-to-br from-primary-700 via-primary-600 to-primary-800 pt-12 pb-20 px-6 relative overflow-hidden">
+          <div className="absolute top-0 right-0 w-64 h-64 bg-accent-500/20 rounded-full blur-3xl -translate-y-1/2 translate-x-1/2"></div>
+          <div className="absolute bottom-0 left-0 w-48 h-48 bg-white/10 rounded-full blur-2xl translate-y-1/2 -translate-x-1/2"></div>
+
+          <div className="relative">
+            <div className="flex items-center justify-between mb-6">
+              <div>
+                <p className="text-primary-200 text-sm">你好，</p>
+                <div className="h-7 w-24 bg-white/20 rounded animate-pulse mt-1"></div>
+              </div>
+              <div className="text-right">
+                <p className="text-primary-200 text-sm">{today}</p>
+                <p className="text-white text-sm">今日工资预估</p>
+              </div>
+            </div>
+
+            <div className="bg-white/10 backdrop-blur-md rounded-2xl p-6 border border-white/20">
+              <div className="flex items-center gap-2 mb-2">
+                <Wallet className="w-5 h-5 text-accent-300" />
+                <span className="text-primary-100 text-sm">今日预估收入</span>
+              </div>
+              <div className="h-12 w-32 bg-white/20 rounded animate-pulse"></div>
+              <div className="flex items-center justify-between mt-4 pt-4 border-t border-white/20">
+                <div>
+                  <p className="text-primary-200 text-xs">本月累计</p>
+                  <div className="h-5 w-20 bg-white/20 rounded animate-pulse mt-1"></div>
+                </div>
+                <div className="text-right">
+                  <p className="text-primary-200 text-xs">出勤天数</p>
+                  <div className="h-5 w-12 bg-white/20 rounded animate-pulse mt-1"></div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div className="px-4 -mt-10 relative z-10 space-y-4">
+          <div className="grid grid-cols-3 gap-3">
+            {[1, 2, 3].map((i) => (
+              <div key={i} className="bg-white rounded-xl p-4 shadow-card text-center animate-pulse">
+                <div className="w-10 h-10 bg-slate-200 rounded-xl mx-auto mb-2"></div>
+                <div className="h-6 w-12 bg-slate-200 rounded mx-auto mb-1"></div>
+                <div className="h-3 w-16 bg-slate-200 rounded mx-auto"></div>
+              </div>
+            ))}
+          </div>
+
+          <div className="bg-white rounded-xl shadow-card overflow-hidden animate-pulse">
+            <div className="px-4 py-3 border-b border-slate-100">
+              <div className="h-5 w-24 bg-slate-200 rounded"></div>
+            </div>
+            <div className="p-4 space-y-3">
+              {[1, 2, 3, 4].map((i) => (
+                <div key={i} className="space-y-2">
+                  <div className="h-4 bg-slate-200 rounded w-full"></div>
+                  <div className="h-2 bg-slate-100 rounded-full"></div>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          <div className="bg-white rounded-xl shadow-card overflow-hidden animate-pulse">
+            <div className="px-4 py-3 border-b border-slate-100">
+              <div className="h-5 w-24 bg-slate-200 rounded"></div>
+            </div>
+            <div className="p-8">
+              <div className="w-12 h-12 bg-slate-200 rounded mx-auto mb-2 opacity-30"></div>
+              <div className="h-4 w-32 bg-slate-200 rounded mx-auto"></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="pb-4 animate-fade-in">

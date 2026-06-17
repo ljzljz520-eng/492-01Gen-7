@@ -1,28 +1,29 @@
-import { useState, useMemo } from 'react';
-import { Plus, Check, Search, ChevronRight } from 'lucide-react';
+import { useState, useMemo, useEffect } from 'react';
+import { Plus, Check, Search, ChevronRight, Loader2 } from 'lucide-react';
 import Button from '@/components/ui/Button';
 import { useStyleStore } from '@/store/useStyleStore';
 import { useWorkerStore } from '@/store/useWorkerStore';
 import { useProductionStore } from '@/store/useProductionStore';
 import { getToday, formatMoney } from '@/utils/date';
 import { PRODUCTION_TYPE_CONFIG } from '@/constants';
-import { calculateRecordAmount } from '@/utils/salary';
-import type { ProductionType } from '@/types';
+import type { ProductionType, Worker, ProductionTypeConfig } from '@/types';
 
 export default function ProductionEntry() {
   const { styles, processes, getProcessesByStyleId, getStyleById } = useStyleStore();
   const { getWorkersByRole, getWorkerById } = useWorkerStore();
-  const { addRecord } = useProductionStore();
+  const { batchCreateRecords } = useProductionStore();
 
   const [step, setStep] = useState(1);
   const [selectedStyleId, setSelectedStyleId] = useState('');
   const [selectedProcessId, setSelectedProcessId] = useState('');
   const [selectedWorkerIds, setSelectedWorkerIds] = useState<string[]>([]);
-  const [quantity, setQuantity] = useState('');
-  const [productionType, setProductionType] = useState<ProductionType>('normal');
+  const [workerQuantities, setWorkerQuantities] = useState<Record<string, { quantity: string; productionType: ProductionType }>>({});
+  const [batchQuantity, setBatchQuantity] = useState('');
+  const [isSubmitting, setIsSubmitting] = useState(false);
   const [remark, setRemark] = useState('');
   const [workerSearch, setWorkerSearch] = useState('');
   const [showSuccess, setShowSuccess] = useState(false);
+  const [allProductionType, setAllProductionType] = useState<ProductionType>('normal');
 
   const workers = getWorkersByRole('worker');
   const styleProcesses = selectedStyleId ? getProcessesByStyleId(selectedStyleId) : [];
@@ -39,14 +40,57 @@ export default function ProductionEntry() {
     );
   }, [workers, workerSearch]);
 
-  const previewAmount = useMemo(() => {
-    const qty = Number(quantity) || 0;
-    const price = selectedProcess?.unitPrice || 0;
-    return calculateRecordAmount(qty, price, productionType);
-  }, [quantity, selectedProcess, productionType]);
+  const selectedWorkers = useMemo(() => {
+    return selectedWorkerIds
+      .map((id) => getWorkerById(id))
+      .filter((w): w is Worker => w !== undefined);
+  }, [selectedWorkerIds, getWorkerById]);
 
-  const totalWorkers = selectedWorkerIds.length;
-  const totalAmount = previewAmount * totalWorkers;
+  useEffect(() => {
+    if (step === 4) {
+      setWorkerQuantities((prev) => {
+        const next = { ...prev };
+        selectedWorkerIds.forEach((workerId) => {
+          if (!next[workerId]) {
+            next[workerId] = { quantity: '', productionType: 'normal' };
+          }
+        });
+        Object.keys(next).forEach((workerId) => {
+          if (!selectedWorkerIds.includes(workerId)) {
+            delete next[workerId];
+          }
+        });
+        return next;
+      });
+    }
+  }, [step, selectedWorkerIds]);
+
+  const totalAmount = useMemo(() => {
+    return selectedWorkerIds.reduce((sum, workerId) => {
+      const workerData = workerQuantities[workerId];
+      if (!workerData) return sum;
+      const qty = Number(workerData.quantity) || 0;
+      const price = selectedProcess?.unitPrice || 0;
+      const config = PRODUCTION_TYPE_CONFIG[workerData.productionType];
+      return sum + qty * price * config.ratio;
+    }, 0);
+  }, [selectedWorkerIds, workerQuantities, selectedProcess]);
+
+  const calculateWorkerAmount = (workerId: string): number => {
+    const workerData = workerQuantities[workerId];
+    if (!workerData) return 0;
+    const qty = Number(workerData.quantity) || 0;
+    const price = selectedProcess?.unitPrice || 0;
+    const config = PRODUCTION_TYPE_CONFIG[workerData.productionType];
+    return qty * price * config.ratio;
+  };
+
+  const allQuantitiesFilled = useMemo(() => {
+    return selectedWorkerIds.every((workerId) => {
+      const qty = Number(workerQuantities[workerId]?.quantity) || 0;
+      return qty > 0;
+    });
+  }, [selectedWorkerIds, workerQuantities]);
 
   const handleStyleSelect = (styleId: string) => {
     setSelectedStyleId(styleId);
@@ -75,37 +119,92 @@ export default function ProductionEntry() {
     }
   };
 
-  const handleSubmit = () => {
-    if (!selectedStyleId || !selectedProcessId || selectedWorkerIds.length === 0 || !quantity) {
+  const handleBatchApply = () => {
+    const qty = Number(batchQuantity) || 0;
+    if (qty <= 0) return;
+    setWorkerQuantities((prev) => {
+      const next = { ...prev };
+      selectedWorkerIds.forEach((workerId) => {
+        next[workerId] = {
+          quantity: batchQuantity,
+          productionType: next[workerId]?.productionType || 'normal',
+        };
+      });
+      return next;
+    });
+  };
+
+  const handleWorkerQuantityChange = (workerId: string, quantity: string) => {
+    setWorkerQuantities((prev) => ({
+      ...prev,
+      [workerId]: {
+        ...prev[workerId],
+        quantity,
+      },
+    }));
+  };
+
+  const handleWorkerTypeChange = (workerId: string, type: ProductionType) => {
+    setWorkerQuantities((prev) => ({
+      ...prev,
+      [workerId]: {
+        ...prev[workerId],
+        productionType: type,
+      },
+    }));
+  };
+
+  const handleAllTypeChange = (type: ProductionType) => {
+    setAllProductionType(type);
+    setWorkerQuantities((prev) => {
+      const next = { ...prev };
+      selectedWorkerIds.forEach((workerId) => {
+        next[workerId] = {
+          ...next[workerId],
+          productionType: type,
+        };
+      });
+      return next;
+    });
+  };
+
+  const handleSubmit = async () => {
+    if (!selectedStyleId || !selectedProcessId || selectedWorkerIds.length === 0 || !allQuantitiesFilled) {
       return;
     }
 
-    const today = getToday();
-
-    selectedWorkerIds.forEach((workerId) => {
-      addRecord({
+    setIsSubmitting(true);
+    try {
+      const today = getToday();
+      const items = selectedWorkerIds.map((workerId) => ({
         workerId,
-        processId: selectedProcessId,
-        styleId: selectedStyleId,
-        quantity: Number(quantity),
-        productionType,
-        unitPrice: selectedProcess?.unitPrice || 0,
-        date: today,
-        remark,
-      });
-    });
+        quantity: Number(workerQuantities[workerId].quantity),
+        productionType: workerQuantities[workerId].productionType,
+      }));
 
-    setShowSuccess(true);
-    setTimeout(() => {
-      setShowSuccess(false);
-      setStep(1);
-      setSelectedStyleId('');
-      setSelectedProcessId('');
-      setSelectedWorkerIds([]);
-      setQuantity('');
-      setProductionType('normal');
-      setRemark('');
-    }, 1500);
+      await batchCreateRecords({
+        styleId: selectedStyleId,
+        processId: selectedProcessId,
+        date: today,
+        items,
+        remark: remark || undefined,
+      });
+
+      setShowSuccess(true);
+      setTimeout(() => {
+        setShowSuccess(false);
+        setStep(1);
+        setSelectedStyleId('');
+        setSelectedProcessId('');
+        setSelectedWorkerIds([]);
+        setWorkerQuantities({});
+        setBatchQuantity('');
+        setAllProductionType('normal');
+        setRemark('');
+      }, 1500);
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   const selectedStyle = selectedStyleId ? getStyleById(selectedStyleId) : null;
@@ -351,7 +450,7 @@ export default function ProductionEntry() {
             </div>
 
             <div className="space-y-6">
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                 <div className="p-4 bg-slate-50 rounded-xl">
                   <p className="text-sm text-slate-500 mb-1">款号</p>
                   <p className="font-semibold text-slate-800">
@@ -370,53 +469,136 @@ export default function ProductionEntry() {
                     {selectedWorkerIds.length} 人
                   </p>
                 </div>
-                <div className="p-4 bg-primary-50 rounded-xl">
-                  <p className="text-sm text-primary-600 mb-1">预计总工资</p>
-                  <p className="font-mono font-bold text-primary-700 text-xl">
-                    {formatMoney(totalAmount)}
-                  </p>
+              </div>
+
+              <div className="bg-slate-50 rounded-xl p-4 space-y-4">
+                <div className="flex flex-wrap items-end gap-4">
+                  <div className="flex-1 min-w-[200px]">
+                    <label className="block text-sm font-medium text-slate-700 mb-2">
+                      批量设置数量
+                    </label>
+                    <div className="flex gap-2">
+                      <input
+                        type="number"
+                        value={batchQuantity}
+                        onChange={(e) => setBatchQuantity(e.target.value)}
+                        placeholder="输入数量，一键应用到所有工人"
+                        className="flex-1 px-4 py-2 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+                      />
+                      <Button onClick={handleBatchApply} disabled={!batchQuantity || Number(batchQuantity) <= 0}>
+                        应用
+                      </Button>
+                    </div>
+                  </div>
+                  <div className="flex-1 min-w-[200px]">
+                    <label className="block text-sm font-medium text-slate-700 mb-2">
+                      全选产量类型
+                    </label>
+                    <select
+                      value={allProductionType}
+                      onChange={(e) => handleAllTypeChange(e.target.value as ProductionType)}
+                      className="w-full px-4 py-2 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent bg-white"
+                    >
+                      {Object.entries(PRODUCTION_TYPE_CONFIG).map(([type, config]) => {
+                        const cfg = config as ProductionTypeConfig;
+                        return (
+                          <option key={type} value={type}>
+                            {cfg.label}（{(cfg.ratio * 100).toFixed(0)}%计薪）
+                          </option>
+                        );
+                      })}
+                    </select>
+                  </div>
                 </div>
               </div>
 
-              <div>
-                <label className="block text-sm font-medium text-slate-700 mb-2">
-                  完成数量（件）
-                </label>
-                <input
-                  type="number"
-                  value={quantity}
-                  onChange={(e) => setQuantity(e.target.value)}
-                  placeholder="请输入完成数量"
-                  className="w-full px-4 py-3 text-xl font-mono border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent"
-                />
+              <div className="space-y-3">
+                {selectedWorkers.map((worker, index) => {
+                  const workerData = workerQuantities[worker.id] || { quantity: '', productionType: 'normal' };
+                  const workerAmount = calculateWorkerAmount(worker.id);
+                  return (
+                    <div
+                      key={worker.id}
+                      className="bg-white border border-slate-200 rounded-xl p-4 hover:border-primary-300 transition-colors"
+                    >
+                      <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 items-center">
+                        <div className="lg:col-span-2 flex items-center gap-3">
+                          <span className="w-8 h-8 bg-primary-100 text-primary-700 rounded-full flex items-center justify-center font-semibold text-sm">
+                            {index + 1}
+                          </span>
+                          <div>
+                            <p className="font-semibold text-slate-800">{worker.name}</p>
+                            <p className="text-xs text-slate-500">工号：{worker.workerNo}</p>
+                          </div>
+                        </div>
+                        <div className="lg:col-span-4">
+                          <label className="block text-xs font-medium text-slate-500 mb-1">
+                            产量类型
+                          </label>
+                          <div className="grid grid-cols-4 gap-2">
+                            {Object.entries(PRODUCTION_TYPE_CONFIG).map(([type, config]) => {
+                              const cfg = config as ProductionTypeConfig;
+                              return (
+                                <button
+                                  key={type}
+                                  type="button"
+                                  onClick={() => handleWorkerTypeChange(worker.id, type as ProductionType)}
+                                  className={`p-2 rounded-lg border-2 transition-all text-center ${
+                                    workerData.productionType === type
+                                      ? 'border-primary-500 bg-primary-50'
+                                      : 'border-slate-200 hover:border-slate-300'
+                                  }`}
+                                >
+                                  <span
+                                    className={`inline-block px-1.5 py-0.5 rounded text-xs font-medium ${cfg.bgColor} ${cfg.color}`}
+                                  >
+                                    {cfg.label}
+                                  </span>
+                                </button>
+                              );
+                            })}
+                          </div>
+                        </div>
+                        <div className="lg:col-span-3">
+                          <label className="block text-xs font-medium text-slate-500 mb-1">
+                            完成数量（件）
+                          </label>
+                          <input
+                            type="number"
+                            value={workerData.quantity}
+                            onChange={(e) => handleWorkerQuantityChange(worker.id, e.target.value)}
+                            placeholder="输入数量"
+                            className="w-full px-3 py-2 border border-slate-200 rounded-lg font-mono focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+                          />
+                        </div>
+                        <div className="lg:col-span-3">
+                          <label className="block text-xs font-medium text-slate-500 mb-1">
+                            预计工资
+                          </label>
+                          <p className="font-mono font-bold text-primary-600 text-lg">
+                            {formatMoney(workerAmount)}
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
               </div>
 
-              <div>
-                <label className="block text-sm font-medium text-slate-700 mb-3">
-                  产量类型
-                </label>
-                <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-                  {Object.entries(PRODUCTION_TYPE_CONFIG).map(([type, config]) => (
-                    <button
-                      key={type}
-                      type="button"
-                      onClick={() => setProductionType(type as ProductionType)}
-                      className={`p-3 rounded-xl border-2 transition-all text-center ${
-                        productionType === type
-                          ? 'border-primary-500 bg-primary-50'
-                          : 'border-slate-200 hover:border-slate-300'
-                      }`}
-                    >
-                      <span
-                        className={`inline-block px-2 py-0.5 rounded text-xs font-medium ${config.bgColor} ${config.color}`}
-                      >
-                        {config.label}
-                      </span>
-                      <p className="text-xs text-slate-500 mt-2">
-                        按 {(config.ratio * 100).toFixed(0)}% 计薪
-                      </p>
-                    </button>
-                  ))}
+              <div className="p-4 bg-primary-50 rounded-xl border border-primary-100">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-sm text-primary-600">预计总工资</p>
+                    <p className="font-mono font-bold text-primary-700 text-2xl mt-1">
+                      {formatMoney(totalAmount)}
+                    </p>
+                  </div>
+                  <div className="text-right">
+                    <p className="text-sm text-slate-500">工人数量</p>
+                    <p className="font-semibold text-slate-800 text-lg mt-1">
+                      {selectedWorkerIds.length} 人
+                    </p>
+                  </div>
                 </div>
               </div>
 
@@ -433,22 +615,32 @@ export default function ProductionEntry() {
                 />
               </div>
 
-              <div className="p-4 bg-amber-50 rounded-xl border border-amber-100">
-                <p className="text-sm text-amber-700">
-                  <span className="font-medium">温馨提示：</span>
-                  {productionType === 'normal'
-                    ? '正常产量按 100% 计算工资'
-                    : productionType === 'rework'
-                    ? '返工产量不计入工资，仅记录数量'
-                    : productionType === 'material_shortage'
-                    ? '缺料产量按 50% 计算工资'
-                    : '质检不过不计入工资，仅记录数量'}
-                </p>
-              </div>
+              {!allQuantitiesFilled && (
+                <div className="p-4 bg-amber-50 rounded-xl border border-amber-100">
+                  <p className="text-sm text-amber-700">
+                    <span className="font-medium">温馨提示：</span>
+                    请确保所有工人的数量都已填写且大于 0
+                  </p>
+                </div>
+              )}
 
-              <Button size="lg" fullWidth onClick={handleSubmit}>
-                <Plus className="w-5 h-5 mr-2" />
-                确认录入
+              <Button
+                size="lg"
+                fullWidth
+                onClick={handleSubmit}
+                disabled={!allQuantitiesFilled || isSubmitting}
+              >
+                {isSubmitting ? (
+                  <>
+                    <Loader2 className="w-5 h-5 mr-2 animate-spin" />
+                    提交中...
+                  </>
+                ) : (
+                  <>
+                    <Plus className="w-5 h-5 mr-2" />
+                    确认录入
+                  </>
+                )}
               </Button>
             </div>
           </div>

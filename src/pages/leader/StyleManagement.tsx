@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Plus, Pencil, Trash2, Settings, Search, ChevronDown, ChevronUp } from 'lucide-react';
 import Button from '@/components/ui/Button';
 import Modal from '@/components/ui/Modal';
@@ -10,7 +10,7 @@ import { calculateTotalQuantity, calculateTotalSalary } from '@/utils/salary';
 export default function StyleManagement() {
   const {
     styles,
-    processes,
+    fetchStyles,
     addStyle,
     updateStyle,
     deleteStyle,
@@ -20,7 +20,12 @@ export default function StyleManagement() {
     getProcessesByStyleId,
   } = useStyleStore();
 
-  const records = useProductionStore((state) => state.records);
+  const { records, fetchRecords } = useProductionStore();
+
+  useEffect(() => {
+    fetchStyles();
+    fetchRecords();
+  }, [fetchStyles, fetchRecords]);
 
   const [searchText, setSearchText] = useState('');
   const [expandedStyleId, setExpandedStyleId] = useState<string | null>(null);
@@ -29,6 +34,10 @@ export default function StyleManagement() {
   const [editingStyle, setEditingStyle] = useState<any>(null);
   const [editingProcess, setEditingProcess] = useState<any>(null);
   const [currentStyleId, setCurrentStyleId] = useState<string | null>(null);
+  const [isSavingStyle, setIsSavingStyle] = useState(false);
+  const [isSavingProcess, setIsSavingProcess] = useState(false);
+  const [isDeletingStyle, setIsDeletingStyle] = useState<string | null>(null);
+  const [isDeletingProcess, setIsDeletingProcess] = useState<string | null>(null);
 
   const [styleForm, setStyleForm] = useState({
     styleNo: '',
@@ -64,18 +73,34 @@ export default function StyleManagement() {
     setStyleModalOpen(true);
   };
 
-  const handleSaveStyle = () => {
-    if (editingStyle) {
-      updateStyle(editingStyle.id, styleForm);
-    } else {
-      addStyle(styleForm);
+  const handleSaveStyle = async () => {
+    setIsSavingStyle(true);
+    try {
+      if (editingStyle) {
+        await updateStyle(editingStyle.id, styleForm);
+      } else {
+        await addStyle(styleForm);
+      }
+      setStyleModalOpen(false);
+    } catch (err) {
+      console.error('保存款号失败:', err);
+      alert('保存失败，请重试');
+    } finally {
+      setIsSavingStyle(false);
     }
-    setStyleModalOpen(false);
   };
 
-  const handleDeleteStyle = (id: string) => {
+  const handleDeleteStyle = async (id: string) => {
     if (confirm('确定要删除该款号吗？相关工序也会被删除。')) {
-      deleteStyle(id);
+      setIsDeletingStyle(id);
+      try {
+        await deleteStyle(id);
+      } catch (err) {
+        console.error('删除款号失败:', err);
+        alert('删除失败，请重试');
+      } finally {
+        setIsDeletingStyle(null);
+      }
     }
   };
 
@@ -102,20 +127,36 @@ export default function StyleManagement() {
     setProcessModalOpen(true);
   };
 
-  const handleSaveProcess = () => {
+  const handleSaveProcess = async () => {
     if (currentStyleId) {
-      if (editingProcess) {
-        updateProcess(editingProcess.id, processForm);
-      } else {
-        addProcess({ ...processForm, styleId: currentStyleId });
+      setIsSavingProcess(true);
+      try {
+        if (editingProcess) {
+          await updateProcess(editingProcess.id, processForm);
+        } else {
+          await addProcess({ ...processForm, styleId: currentStyleId });
+        }
+        setProcessModalOpen(false);
+      } catch (err) {
+        console.error('保存工序失败:', err);
+        alert('保存失败，请重试');
+      } finally {
+        setIsSavingProcess(false);
       }
-      setProcessModalOpen(false);
     }
   };
 
-  const handleDeleteProcess = (id: string) => {
+  const handleDeleteProcess = async (id: string) => {
     if (confirm('确定要删除该工序吗？')) {
-      deleteProcess(id);
+      setIsDeletingProcess(id);
+      try {
+        await deleteProcess(id);
+      } catch (err) {
+        console.error('删除工序失败:', err);
+        alert('删除失败，请重试');
+      } finally {
+        setIsDeletingProcess(null);
+      }
     }
   };
 
@@ -217,9 +258,17 @@ export default function StyleManagement() {
                         e.stopPropagation();
                         handleDeleteStyle(style.id);
                       }}
-                      className="p-2 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors"
+                      disabled={isDeletingStyle === style.id}
+                      className="p-2 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                     >
-                      <Trash2 className="w-4 h-4" />
+                      {isDeletingStyle === style.id ? (
+                        <svg className="animate-spin w-4 h-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                          <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                          <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                        </svg>
+                      ) : (
+                        <Trash2 className="w-4 h-4" />
+                      )}
                     </button>
                     {isExpanded ? (
                       <ChevronUp className="w-5 h-5 text-slate-400" />
@@ -284,9 +333,17 @@ export default function StyleManagement() {
                                 onClick={() =>
                                   handleDeleteProcess(process.id)
                                 }
-                                className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-md transition-colors"
+                                disabled={isDeletingProcess === process.id}
+                                className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-md transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                               >
-                                <Trash2 className="w-3.5 h-3.5" />
+                                {isDeletingProcess === process.id ? (
+                                  <svg className="animate-spin w-3.5 h-3.5" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                                  </svg>
+                                ) : (
+                                  <Trash2 className="w-3.5 h-3.5" />
+                                )}
                               </button>
                             </div>
                           </div>
@@ -360,7 +417,7 @@ export default function StyleManagement() {
           <Button variant="secondary" onClick={() => setStyleModalOpen(false)}>
             取消
           </Button>
-          <Button onClick={handleSaveStyle}>保存</Button>
+          <Button onClick={handleSaveStyle} isLoading={isSavingStyle}>保存</Button>
         </div>
       </Modal>
 
@@ -424,7 +481,7 @@ export default function StyleManagement() {
           <Button variant="secondary" onClick={() => setProcessModalOpen(false)}>
             取消
           </Button>
-          <Button onClick={handleSaveProcess}>保存</Button>
+          <Button onClick={handleSaveProcess} isLoading={isSavingProcess}>保存</Button>
         </div>
       </Modal>
     </div>

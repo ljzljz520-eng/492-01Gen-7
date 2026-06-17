@@ -1,9 +1,9 @@
-import { useState, useMemo } from 'react';
-import { Calendar, ChevronLeft, ChevronRight, Wallet, Package } from 'lucide-react';
+import { useState, useMemo, useEffect } from 'react';
+import { Calendar, ChevronLeft, ChevronRight, Package } from 'lucide-react';
 import { useAuthStore } from '@/store/useAuthStore';
 import { useProductionStore } from '@/store/useProductionStore';
 import { useStyleStore } from '@/store/useStyleStore';
-import { formatMoney, formatDate, getCurrentMonth } from '@/utils/date';
+import { formatMoney, getCurrentMonth } from '@/utils/date';
 import {
   calculateTotalQuantity,
   calculateTotalSalary,
@@ -12,8 +12,18 @@ import { PRODUCTION_TYPE_CONFIG } from '@/constants';
 
 export default function WorkerHistory() {
   const { currentUser } = useAuthStore();
-  const { records, subsidies } = useProductionStore();
-  const { getStyleById, getProcessById } = useStyleStore();
+  const { records, subsidies, loading: productionLoading, fetchRecords, fetchSubsidies } = useProductionStore();
+  const { loading: stylesLoading, fetchStyles, getStyleById, getProcessById } = useStyleStore();
+
+  const loading = productionLoading || stylesLoading;
+
+  useEffect(() => {
+    if (currentUser?.id) {
+      fetchStyles();
+      fetchRecords({ workerId: currentUser.id });
+      fetchSubsidies({ workerId: currentUser.id });
+    }
+  }, [fetchStyles, fetchRecords, fetchSubsidies, currentUser?.id]);
 
   const { year: currentYear, month: currentMonth } = getCurrentMonth();
   const [selectedYear, setSelectedYear] = useState(currentYear);
@@ -97,13 +107,64 @@ export default function WorkerHistory() {
     setSelectedDate(null);
   };
 
-  const selectedDayRecords = selectedDate
-    ? monthRecords.filter((r) => r.date === selectedDate)
-    : [];
-
   const selectedDaySubsidies = selectedDate
     ? monthSubsidies.filter((s) => s.date === selectedDate)
     : [];
+
+  if (loading) {
+    return (
+      <div className="pb-4 animate-fade-in">
+        <div className="bg-white shadow-sm sticky top-0 z-10">
+          <div className="px-4 py-4">
+            <h1 className="text-xl font-bold text-slate-800">历史记录</h1>
+          </div>
+
+          <div className="flex items-center justify-between px-4 py-3 border-b border-slate-100">
+            <div className="w-9 h-9 bg-slate-100 rounded-lg"></div>
+
+            <div className="flex items-center gap-2">
+              <Calendar className="w-5 h-5 text-primary-600" />
+              <span className="text-lg font-semibold text-slate-800">
+                {selectedYear}年{selectedMonth}月
+              </span>
+            </div>
+
+            <div className="w-9 h-9 bg-slate-100 rounded-lg"></div>
+          </div>
+
+          <div className="grid grid-cols-3 gap-3 px-4 py-4">
+            {[1, 2, 3].map((i) => (
+              <div key={i} className="text-center">
+                <div className="h-3 w-16 bg-slate-200 rounded mx-auto mb-1 animate-pulse"></div>
+                <div className="h-5 w-20 bg-slate-200 rounded mx-auto animate-pulse"></div>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        <div className="px-4 py-4 space-y-3">
+          <div className="grid grid-cols-2 gap-3">
+            {[1, 2].map((i) => (
+              <div key={i} className="bg-slate-100 rounded-xl p-4 animate-pulse">
+                <div className="h-4 w-20 bg-slate-200 rounded mb-2"></div>
+                <div className="h-6 w-16 bg-slate-200 rounded"></div>
+              </div>
+            ))}
+          </div>
+
+          <div className="bg-white rounded-xl shadow-card overflow-hidden animate-pulse">
+            <div className="px-4 py-3 border-b border-slate-100">
+              <div className="h-5 w-20 bg-slate-200 rounded"></div>
+            </div>
+            <div className="p-8">
+              <div className="w-12 h-12 bg-slate-200 rounded mx-auto mb-2 opacity-30"></div>
+              <div className="h-4 w-32 bg-slate-200 rounded mx-auto"></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="pb-4 animate-fade-in">

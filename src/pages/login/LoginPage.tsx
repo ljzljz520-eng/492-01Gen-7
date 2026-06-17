@@ -1,7 +1,6 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { User, Lock, Shirt } from 'lucide-react';
-import { useWorkerStore } from '@/store/useWorkerStore';
 import { useAuthStore } from '@/store/useAuthStore';
 import Button from '@/components/ui/Button';
 
@@ -15,8 +14,7 @@ export default function LoginPage() {
   const [isLoading, setIsLoading] = useState(false);
 
   const navigate = useNavigate();
-  const { login: loginStore } = useWorkerStore();
-  const { login: setAuth } = useAuthStore();
+  const { loginWithApi, login: setAuth, logout } = useAuthStore();
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -24,22 +22,17 @@ export default function LoginPage() {
     setIsLoading(true);
 
     try {
-      await new Promise((resolve) => setTimeout(resolve, 500));
-
-      const worker = loginStore(username, password);
-
-      if (!worker) {
-        setError('账号或密码错误');
-        return;
-      }
+      const worker = await loginWithApi({ workerNo: username, password });
 
       if (role === 'leader' && worker.role !== 'leader') {
         setError('该账号没有组长权限');
+        logout();
         return;
       }
 
       if (role === 'worker' && worker.role !== 'worker') {
         setError('请使用工人账号登录');
+        logout();
         return;
       }
 
@@ -50,6 +43,9 @@ export default function LoginPage() {
       } else {
         navigate('/worker/home');
       }
+    } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : '登录失败，请重试';
+      setError(errorMessage);
     } finally {
       setIsLoading(false);
     }

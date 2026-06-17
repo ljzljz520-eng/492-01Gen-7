@@ -1,6 +1,10 @@
-import type { ProductionTypeConfig } from '@/types';
-
-export const PRODUCTION_TYPE_CONFIG: Record<string, ProductionTypeConfig> = {
+export const PRODUCTION_TYPE_CONFIG: Record<string, {
+  label: string;
+  labelEn: string;
+  ratio: number;
+  color: string;
+  bgColor: string;
+}> = {
   normal: {
     label: '正常',
     labelEn: 'Normal',
@@ -47,9 +51,4 @@ export const SUBSIDY_TYPE_CONFIG = {
     color: 'text-gray-600',
     bgColor: 'bg-gray-50',
   },
-};
-
-export const STORAGE_KEYS = {
-  AUTH: 'garment_auth',
-  TOKEN: 'garment_token',
 };

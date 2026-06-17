@@ -1,6 +1,5 @@
-import { useMemo } from 'react';
+import { useMemo, useEffect } from 'react';
 import {
-  TrendingUp,
   Users,
   Package,
   DollarSign,
@@ -29,9 +28,17 @@ import { PRODUCTION_TYPE_CONFIG } from '@/constants';
 
 export default function LeaderDashboard() {
   const today = getToday();
-  const records = useProductionStore((state) => state.records);
-  const workers = useWorkerStore((state) => state.workers);
-  const styles = useStyleStore((state) => state.styles);
+  const { records, loading: recordsLoading, fetchRecords } = useProductionStore();
+  const { workers, loading: workersLoading, fetchWorkers } = useWorkerStore();
+  const { styles, loading: stylesLoading, fetchStyles } = useStyleStore();
+
+  const loading = recordsLoading || workersLoading || stylesLoading;
+
+  useEffect(() => {
+    fetchStyles();
+    fetchWorkers();
+    fetchRecords();
+  }, [fetchStyles, fetchWorkers, fetchRecords]);
 
   const todayRecords = useMemo(
     () => records.filter((r) => r.date === today),
@@ -109,6 +116,62 @@ export default function LeaderDashboard() {
 
     return workerStats;
   }, [workers, todayRecords]);
+
+  if (loading) {
+    return (
+      <div className="space-y-6 animate-fade-in">
+        <div className="flex items-center justify-between">
+          <div>
+            <h1 className="text-2xl font-bold text-slate-800">生产看板</h1>
+            <p className="text-slate-500 mt-1">今日生产数据概览 - {today}</p>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+          {[1, 2, 3, 4].map((i) => (
+            <div key={i} className="bg-white rounded-xl shadow-card p-5 animate-pulse">
+              <div className="flex items-center gap-3 mb-3">
+                <div className="w-10 h-10 bg-slate-200 rounded-xl"></div>
+                <div className="h-4 bg-slate-200 rounded w-20"></div>
+              </div>
+              <div className="h-8 bg-slate-200 rounded w-24"></div>
+            </div>
+          ))}
+        </div>
+
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+          <div className="lg:col-span-2 bg-white rounded-xl shadow-card p-6 animate-pulse">
+            <div className="h-6 bg-slate-200 rounded w-32 mb-4"></div>
+            <div className="h-72 bg-slate-100 rounded-lg"></div>
+          </div>
+          <div className="bg-white rounded-xl shadow-card p-6 animate-pulse">
+            <div className="h-6 bg-slate-200 rounded w-32 mb-4"></div>
+            <div className="space-y-4">
+              {[1, 2, 3, 4].map((i) => (
+                <div key={i} className="space-y-2">
+                  <div className="h-4 bg-slate-200 rounded w-full"></div>
+                  <div className="h-2 bg-slate-100 rounded-full"></div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          {[1, 2].map((i) => (
+            <div key={i} className="bg-white rounded-xl shadow-card p-6 animate-pulse">
+              <div className="h-6 bg-slate-200 rounded w-32 mb-4"></div>
+              <div className="space-y-3">
+                {[1, 2, 3, 4, 5].map((j) => (
+                  <div key={j} className="h-16 bg-slate-100 rounded-xl"></div>
+                ))}
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6 animate-fade-in">

@@ -1,13 +1,17 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import type { Worker } from '@/types';
+import { api } from '@/api/client';
+
+export type AuthenticatedUser = Omit<Worker, 'password'>;
 
 interface AuthState {
-  currentUser: Worker | null;
+  currentUser: AuthenticatedUser | null;
   isAuthenticated: boolean;
-  login: (user: Worker) => void;
+  login: (user: AuthenticatedUser) => void;
   logout: () => void;
-  updateCurrentUser: (user: Worker) => void;
+  updateCurrentUser: (user: AuthenticatedUser) => void;
+  loginWithApi: (payload: { workerNo: string; password: string }) => Promise<AuthenticatedUser>;
 }
 
 export const useAuthStore = create<AuthState>()(
@@ -29,6 +33,15 @@ export const useAuthStore = create<AuthState>()(
         set({
           currentUser: user,
         }),
+      loginWithApi: async (payload) => {
+        const response = await api.auth.login(payload);
+        localStorage.setItem('garment_token', response.token);
+        set({
+          currentUser: response.worker,
+          isAuthenticated: true,
+        });
+        return response.worker;
+      },
     }),
     {
       name: 'garment_auth',
